@@ -1,8 +1,20 @@
-# redeye
+<h1 align="center">redeye</h1>
 
-Screenshot and recon a set of web targets into one self-contained HTML report —
-the terminal equivalent of opening 300 hosts in a browser and eyeballing them,
-done in one command.
+<p align="center">
+  Screenshot and recon a set of web targets into one self-contained HTML report —<br>
+  the terminal equivalent of opening 300 hosts in a browser and eyeballing them, in one command.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License">
+  <img src="https://img.shields.io/badge/Apple%20Silicon-native%20ARM64-black.svg?logo=apple" alt="Native on Apple Silicon">
+  <img src="https://img.shields.io/badge/no-Docker%20%7C%20no%20Selenium-red.svg" alt="No Docker, no Selenium">
+</p>
+
+<p align="center"><img src="docs/report.png" alt="redeye HTML report — thumbnail gallery grouped by High Interest" width="860"></p>
+
+<p align="center"><i>The report groups hosts so the interesting stuff — known apps, login pages — floats to the top.</i></p>
 
 ```bash
 redeye -f urls.txt
@@ -111,7 +123,9 @@ then everything else. That ordering is what makes a 300-host report usable:
 you scan the top, not the whole thing.
 
 A **filter box** narrows cards by URL, title, or tag as you type (plain JS, no
-build step).
+build step) — here, typing `login` to isolate every login page at once:
+
+<p align="center"><img src="docs/report-filter.png" alt="redeye report filtered to login pages" width="860"></p>
 
 `results.json` carries the same data for piping into other tools — every
 target's final URL, status, headers (from both the browser and an independent
