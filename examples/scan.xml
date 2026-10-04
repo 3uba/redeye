@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<nmaprun scanner="nmap" args="nmap -sV -oX scan.xml 10.10.10.0/24" start="1700000000" version="7.94">
+  <host starttime="1700000000" endtime="1700000100">
+    <status state="up" reason="echo-reply"/>
+    <address addr="10.10.10.5" addrtype="ipv4"/>
+    <hostnames>
+      <hostname name="dev.lab.local" type="PTR"/>
+    </hostnames>
+    <ports>
+      <port protocol="tcp" portid="80">
+        <state state="open" reason="syn-ack"/>
+        <service name="http" product="Apache httpd" version="2.4.52"/>
+      </port>
+      <port protocol="tcp" portid="443">
+        <state state="open" reason="syn-ack"/>
+        <service name="https" product="nginx" tunnel="ssl"/>
+      </port>
+      <port protocol="tcp" portid="22">
+        <state state="open" reason="syn-ack"/>
+        <service name="ssh"/>
+      </port>
+    </ports>
+  </host>
+  <host>
+    <status state="up" reason="echo-reply"/>
+    <address addr="10.10.10.9" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="8080">
+        <state state="open" reason="syn-ack"/>
+        <service name="http-proxy"/>
+      </port>
+      <port protocol="tcp" portid="8443">
+        <state state="open" reason="syn-ack"/>
+        <service name="https-alt" tunnel="ssl"/>
+      </port>
+      <port protocol="tcp" portid="9000">
+        <state state="open" reason="syn-ack"/>
+        <service name="cslistener"/>
+      </port>
+    </ports>
+  </host>
+  <host>
+    <status state="down" reason="no-response"/>
+    <address addr="10.10.10.99" addrtype="ipv4"/>
+  </host>
+</nmaprun>

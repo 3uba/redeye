@@ -1,0 +1,11 @@
+# redeye example target list — one per line
+# full URLs are used as-is:
+https://example.com
+http://example.org
+
+# bare hosts get a scheme (auto = https then http):
+scanme.nmap.org
+testphp.vulnweb.com:80
+
+# host:port where the port hints the scheme:
+10.10.10.10:8443
