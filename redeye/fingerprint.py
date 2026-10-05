@@ -32,7 +32,7 @@ RULES: dict[str, list[str]] = {
     "PHP": ["x-powered-by: php", ".php"],
     "Express": ["x-powered-by: express"],
     "Spring Boot": ["whitelabel error page", "x-application-context"],
-    "Django": ["csrfmiddlewaretoken", "__admin__", "x-frame-options: deny"],
+    "Django": ["csrfmiddlewaretoken", "csrftoken", "__admin__", "/static/admin/"],
     "Default/Placeholder page": [
         "it works!",
         "welcome to nginx",
