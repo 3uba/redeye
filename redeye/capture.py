@@ -46,9 +46,32 @@ class CaptureResult:
     error: str = ""
     source: str = "file"
 
+    # --- richer recon, all best-effort and optional ---
+    #: elapsed wall-clock for the browser navigation, in milliseconds
+    elapsed_ms: float = 0.0
+    #: the chain of redirect statuses + locations the browser followed
+    redirects: list[dict[str, str]] = field(default_factory=list)
+    #: TLS certificate facts for https targets: subject, issuer, validity, SANs
+    tls: dict[str, object] = field(default_factory=dict)
+    #: which notable security headers are present (value) or absent (missing)
+    security_headers: dict[str, str] = field(default_factory=dict)
+    #: content-type of the final response
+    content_type: str = ""
+    #: IP the host resolved to, when we can learn it
+    ip: str = ""
+    #: a stable hash of the favicon bytes, useful for clustering look-alikes
+    favicon_hash: str = ""
+
     @property
     def high_interest(self) -> bool:
         return is_high_interest(self.tech)
+
+    @property
+    def host(self) -> str:
+        """The hostname portion of the URL, for display and grouping."""
+        from urllib.parse import urlparse
+
+        return urlparse(self.final_url or self.url).netloc or self.url
 
     def to_dict(self) -> dict:
         """A JSON-friendly dict for results.json."""
@@ -67,6 +90,13 @@ class CaptureResult:
             "error": self.error,
             "source": self.source,
             "high_interest": self.high_interest,
+            "elapsed_ms": round(self.elapsed_ms, 1),
+            "redirects": self.redirects,
+            "tls": self.tls,
+            "security_headers": self.security_headers,
+            "content_type": self.content_type,
+            "ip": self.ip,
+            "favicon_hash": self.favicon_hash,
         }
 
 
@@ -92,6 +122,75 @@ def _safe_filename(url: str, index: int) -> str:
     slug = "".join(c if c in keep else "_" for c in url)
     slug = slug[:80].strip("_") or "target"
     return f"{index:04d}_{slug}.png"
+
+
+#: Security headers worth surfacing. Order matters for display.
+_SECURITY_HEADERS = [
+    "strict-transport-security",
+    "content-security-policy",
+    "x-frame-options",
+    "x-content-type-options",
+    "referrer-policy",
+    "permissions-policy",
+]
+
+
+def _summarize_security_headers(headers: dict[str, str]) -> dict[str, str]:
+    """Return {header: value-or-'missing'} for the notable security headers.
+
+    Header names are matched case-insensitively. A present header keeps its
+    (possibly truncated) value; an absent one maps to the literal ``"missing"``
+    so the report can show the gaps, which is what a pentester actually wants.
+    """
+    lowered = {k.lower(): v for k, v in headers.items()}
+    out: dict[str, str] = {}
+    for name in _SECURITY_HEADERS:
+        value = lowered.get(name)
+        if value is None:
+            out[name] = "missing"
+        else:
+            out[name] = value if len(value) <= 120 else value[:117] + "..."
+    return out
+
+
+async def _collect_tls(response) -> dict[str, object]:
+    """Await Playwright's security details and normalize them into a dict."""
+    try:
+        details = await response.security_details()
+    except Exception:  # noqa: BLE001 - TLS details are best-effort
+        return {}
+    if not details:
+        return {}
+    out: dict[str, object] = {}
+    issuer = details.get("issuer")
+    subject = details.get("subjectName")
+    protocol = details.get("protocol")
+    valid_from = details.get("validFrom")
+    valid_to = details.get("validTo")
+    if subject:
+        out["subject"] = subject
+    if issuer:
+        out["issuer"] = issuer
+    if protocol:
+        out["protocol"] = protocol
+    # Playwright gives validFrom/validTo as unix timestamps (seconds).
+    for key, raw in (("valid_from", valid_from), ("valid_to", valid_to)):
+        if raw:
+            try:
+                from datetime import datetime, timezone
+
+                out[key] = datetime.fromtimestamp(raw, timezone.utc).strftime(
+                    "%Y-%m-%d"
+                )
+            except (ValueError, OSError, OverflowError):
+                pass
+    # Flag an expired or self-signed-looking cert, which is attack-relevant.
+    try:
+        if issuer and subject and issuer == subject:
+            out["self_signed"] = True
+    except Exception:  # noqa: BLE001
+        pass
+    return out
 
 
 async def _fetch_headers(
@@ -123,6 +222,8 @@ async def _capture_one(
     on_done=None,
 ) -> CaptureResult:
     """Visit one target in its own browser context; collect everything."""
+    import time
+
     result = CaptureResult(url=target.url, source=target.source)
     timeout_ms = int(config.timeout * 1000)
 
@@ -142,15 +243,45 @@ async def _capture_one(
         page = await context.new_page()
         page.set_default_timeout(timeout_ms)
 
+        started = time.perf_counter()
         response = await page.goto(
             target.url, timeout=timeout_ms, wait_until="domcontentloaded"
         )
+        result.elapsed_ms = (time.perf_counter() - started) * 1000
 
         result.final_url = page.url
         if response is not None:
             result.status = response.status
             result.headers = {k: v for k, v in response.headers.items()}
             result.server = result.headers.get("server", "")
+            result.content_type = result.headers.get("content-type", "").split(";")[0]
+            result.security_headers = _summarize_security_headers(result.headers)
+
+            # Redirect chain the browser walked to get here.
+            try:
+                req = response.request
+                chain: list[dict[str, str]] = []
+                redirected_from = req.redirected_from
+                while redirected_from is not None:
+                    rfrom_resp = await redirected_from.response()
+                    code = rfrom_resp.status if rfrom_resp else 0
+                    chain.append({"status": str(code), "url": redirected_from.url})
+                    redirected_from = redirected_from.redirected_from
+                result.redirects = list(reversed(chain))
+            except Exception:  # noqa: BLE001 - redirect chain is best-effort
+                pass
+
+            # TLS details for https.
+            if result.final_url.startswith("https://"):
+                result.tls = await _collect_tls(response)
+
+            # Resolved IP, when Playwright exposes it.
+            try:
+                server_addr = await response.server_addr()
+                if server_addr and server_addr.get("ipAddress"):
+                    result.ip = server_addr["ipAddress"]
+            except Exception:  # noqa: BLE001
+                pass
 
         try:
             result.title = (await page.title()) or ""
@@ -176,6 +307,27 @@ async def _capture_one(
                 result.error = f"screenshot failed: {exc}"
 
         result.tech = fingerprint(result.headers, body, result.title)
+
+        # favicon hash: cheap way to cluster look-alike / default pages.
+        try:
+            fav = await page.evaluate(
+                """async () => {
+                    try {
+                        const r = await fetch('/favicon.ico', {cache: 'no-store'});
+                        if (!r.ok) return null;
+                        const buf = await r.arrayBuffer();
+                        return Array.from(new Uint8Array(buf));
+                    } catch (e) { return null; }
+                }"""
+            )
+            if fav:
+                import hashlib
+
+                digest = hashlib.md5(bytes(fav)).hexdigest()[:12]
+                result.favicon_hash = digest
+        except Exception:  # noqa: BLE001 - favicon is best-effort
+            pass
+
         result.outcome = "ok"
 
     except PlaywrightTimeout:

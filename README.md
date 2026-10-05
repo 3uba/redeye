@@ -122,14 +122,27 @@ Tomcat, Jenkins, Grafana, …) or a login page — then one section per technolo
 then everything else. That ordering is what makes a 300-host report usable:
 you scan the top, not the whole thing.
 
-A **filter box** narrows cards by URL, title, or tag as you type (plain JS, no
-build step) — here, typing `login` to isolate every login page at once:
+**Progressive disclosure.** Each card shows only the essentials (screenshot,
+status, host, tech tags, response time, and a flag when security headers are
+missing). Click any card and a detail panel slides in with the full recon for
+that host: TLS certificate, the complete security-header checklist, the redirect
+chain it followed, resolved IP, favicon hash, and the raw response headers. The
+grid stays scannable; the depth is one click away when you want it.
 
-<p align="center"><img src="docs/report-filter.png" alt="redeye report filtered to login pages" width="860"></p>
+<p align="center"><img src="docs/report-detail.png" alt="redeye report with a host detail panel open" width="860"></p>
 
-`results.json` carries the same data for piping into other tools — every
-target's final URL, status, headers (from both the browser and an independent
-`httpx` fetch), title, tech tags, and screenshot path.
+**Grid or list.** A toggle in the console bar switches between the thumbnail
+**grid** (eyeball the screenshots) and a dense **list** (scan the data). Your
+choice is remembered per browser.
+
+A **filter box** narrows cards by URL, title, or tag as you type, and a status
+meter in the bar shows the 2xx/3xx/4xx/5xx breakdown at a glance. All plain JS,
+no build step.
+
+`results.json` carries everything for piping into other tools: each target's
+final URL, status, both header sets (browser + independent `httpx` fetch), TLS
+facts, security headers, redirect chain, IP, timing, favicon hash, title, and
+tech tags.
 
 ## How it works
 
@@ -137,16 +150,18 @@ target's final URL, status, headers (from both the browser and an independent
    into one deduplicated list of URLs to visit.
 2. **capture** (`redeye/capture.py`) visits them concurrently with an asyncio
    worker pool (`--threads`). Each target gets its own browser context, a
-   full-page screenshot, and the page's status/title/headers. A **separate**
-   `httpx` request fetches headers independently — if the two disagree (a header
-   fetch times out but the screenshot renders, say), both are recorded. A dead,
-   slow, or hostile host becomes a recorded outcome (`timeout` / `error`), never
-   a crash, and never blocks the other workers.
+   full-page screenshot, and a rich set of facts: status, title, headers, TLS
+   certificate, security-header presence, redirect chain, resolved IP, response
+   time, content-type, and a favicon hash. A **separate** `httpx` request fetches
+   headers independently — if the two disagree (a header fetch times out but the
+   screenshot renders, say), both are recorded. A dead, slow, or hostile host
+   becomes a recorded outcome (`timeout` / `error`), never a crash, and never
+   blocks the other workers.
 3. **fingerprint** (`redeye/fingerprint.py`) applies a small, readable rules
    table (`{label: [signatures]}`) over the headers + body. It's a hint, not
    Wappalyzer — and trivial to extend: add a line to `RULES`.
-4. **report** (`redeye/report.py`) renders the grouped HTML with Jinja2 and
-   writes `results.json`.
+4. **report** (`redeye/report.py` + `redeye/template.py`) renders the grouped
+   HTML with Jinja2 and writes `results.json`.
 
 ## Extending the fingerprint
 
